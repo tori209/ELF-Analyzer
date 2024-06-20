@@ -8,7 +8,8 @@
 #include <unistd.h>
 #include <elf.h>
 
-#define ELFID_NAMEGAP 24
+#include "const.h"
+#include "elf64.h"
 
 const char magic_str[5] = {0x7f, 'E', 'L', 'F', '\0'};
 char e_ident[EI_NIDENT];
@@ -17,7 +18,7 @@ const char* osabi_strarr[256] = {};
 void bin_to_hex (void * hexarr, void * buffer, int len) {
 	char * arr = (char *)hexarr;
 	char * ret = (char *)buffer;
-	char hex_table[16] = "0123456789ABCDEF";
+	const char hex_table[16] = "0123456789ABCDEF";
 	char hex[3];
 	int idx;
 	for (idx = 0; idx * 3 < len; idx++) {
@@ -59,7 +60,6 @@ int elfid_parser (int fd) {
 		exit(1);
 	}
 
-	printf("Parsing ELF Identification... ======================\n");
 	// Check whether given file is elf object file.
 	temp = strncmp(e_ident, magic_str, 4);
 	if (temp != 0) {
@@ -71,7 +71,7 @@ int elfid_parser (int fd) {
 	} else { 
 		str_ptr = (char *)malloc(sizeof(char) * 3 * EI_NIDENT);
 		bin_to_hex(e_ident, str_ptr, sizeof(char) * 3 * EI_NIDENT);
-		printf("%*s: %s\n", ELFID_NAMEGAP, "ELF Identification (Hex)", str_ptr);
+		printf("%-*s: %s\n", EHDR_NAMEGAP, "ELF Identification (Hex)", str_ptr);
 		free (str_ptr);   
 	}
 	
@@ -90,7 +90,7 @@ int elfid_parser (int fd) {
 			str_ptr = "Unknown Class Object File";
 	}
 
-	printf("%*s: %s\n", ELFID_NAMEGAP, "Object File Class", str_ptr);
+	printf("%-*s: %s\n", EHDR_NAMEGAP, "Object File Class", str_ptr);
 
 	// Check Encoding Type
 	switch (e_ident[EI_DATA]) {
@@ -107,11 +107,11 @@ int elfid_parser (int fd) {
 			str_ptr = "Unknown Data Encoding";
 			break;
 	}
-	printf("%*s: %s\n", ELFID_NAMEGAP, "Data Encodinag Type", str_ptr);
+	printf("%-*s: %s\n", EHDR_NAMEGAP, "Data Encodinag Type", str_ptr);
 
 	// Check OSABI
-	printf("%*s: %s\n", ELFID_NAMEGAP, "OS & ABI", osabi_strarr[e_ident[EI_OSABI]]);
-	printf("%*s: %d\n", ELFID_NAMEGAP, "ABI Version", e_ident[EI_ABIVERSION]);
+	printf("%-*s: %s\n", EHDR_NAMEGAP, "OS & ABI", osabi_strarr[e_ident[EI_OSABI]]);
+	printf("%-*s: %d\n", EHDR_NAMEGAP, "ABI Version", e_ident[EI_ABIVERSION]);
 }
 
 int main(int argc, char* argv[]) {
@@ -129,7 +129,12 @@ int main(int argc, char* argv[]) {
 		exit(1);
 	}
 	
+	printf("Parsing ELF Identification... ======================\n");
 	elfid_parser(fd);
+
+	printf("Parsing ELF Header... ==============================\n");
+	if (e_ident[EI_CLASS] == 1) {  }
+	if (e_ident[EI_CLASS] == 2) { ehdr64_print(fd); }
 
 	close(fd);
 	return 0;

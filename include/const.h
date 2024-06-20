@@ -1,0 +1,1 @@
+#define EHDR_NAMEGAP 28
