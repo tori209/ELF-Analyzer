@@ -14,6 +14,24 @@
 int ehdr64_read (int fd, Elf64_Ehdr * buf) {
 	if (lseek(fd, 0, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, sizeof(Elf64_Ehdr)) < 0) {  return -1;  }
+
+	if ((is_little_endian() && (buf->e_ident[EI_DATA] == ELFDATA2MSB))
+		|| ((!is_little_endian()) && (buf->e_ident[EI_DATA] == ELFDATA2LSB))) {
+		convert_ordering(&buf->e_type, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_machine, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_version, sizeof(Elf64_Word));
+		convert_ordering(&buf->e_entry, sizeof(Elf64_Addr));
+		convert_ordering(&buf->e_phoff, sizeof(Elf64_Off));
+		convert_ordering(&buf->e_shoff, sizeof(Elf64_Off));
+		convert_ordering(&buf->e_flags, sizeof(Elf64_Word));
+		convert_ordering(&buf->e_ehsize, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_phentsize, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_phnum, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_shentsize, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_shnum, sizeof(Elf64_Half));
+		convert_ordering(&buf->e_shstrndx, sizeof(Elf64_Half));
+	}
+
 	return 0;
 }
 
