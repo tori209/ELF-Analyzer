@@ -192,9 +192,8 @@ int shdr64_print(int fd) {
 			fprintf(stderr, "WARNING: Failed to read Section Header, index: %d. Skip.\n", idx);
 			continue;
 		}
-		if (shdr.sh_type == SHT_NULL) {  continue;  }
 
-		printf("\n==| Section %d |==================\n", idx);
+		printf("\n==| Section %d |==================\n", idx-1);
 
 		str_ptr = strtab64_read(fd, shdr.sh_name);
 		if (str_ptr == NULL) {
