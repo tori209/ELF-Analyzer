@@ -1,1 +1,4 @@
 #define EHDR_NAMEGAP 28
+#define SHDR_NAMEGAP 28
+
+#define STRTAB_ENTRY_MAX 32768

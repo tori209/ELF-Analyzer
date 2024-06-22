@@ -25,6 +25,39 @@ int shdr64_read (int fd, Elf64_Shdr * buf, int idx) {
 	return 0;
 }
 
+char * strtab64_read (int fd, int offset) {
+	static char * strtab = NULL;
+	static int curr_fd = -1;
+	static Elf64_Word size = -1;
+
+	if (curr_fd != fd) {
+		Elf64_Ehdr ehdr;
+		Elf64_Shdr shdr;
+		off_t prev_lseek;
+
+		if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return NULL;  }
+
+		// Initialization
+		if (strtab != NULL) {  free(strtab);  }
+		if (ehdr64_read (fd, &ehdr) < 0)  {  curr_fd = -1; return NULL;  }
+		if (shdr64_read (fd, &shdr, ehdr.e_shstrndx) < 0) {  curr_fd = -1; return NULL;  }
+		if ((strtab = (char*)malloc(shdr.sh_size)) == NULL) {  curr_fd = -1; return NULL;  }
+		
+		// Memory Copy
+		if (lseek(fd, shdr.sh_offset, SEEK_SET) < 0) {  free(strtab); curr_fd = -1; return NULL;  }
+		if (read(fd, strtab, shdr.sh_size) < 0) {  free(strtab); curr_fd = -1; return NULL;  }
+		
+		size = shdr.sh_size;
+		curr_fd = fd;
+		if ((prev_lseek = lseek(fd, prev_lseek, SEEK_SET)) < 0) {  
+			fprintf(stderr, "FATAL ERROR: lseek restoration failed\n");
+			exit(1);
+	  	}
+	}
+	if (offset >= size) {  return NULL;  }
+	return &strtab[offset];
+}
+
 int ehdr64_print (int fd) {
 	Elf64_Ehdr ehdr;
 	Elf64_Shdr shdr;
@@ -109,3 +142,125 @@ int ehdr64_print (int fd) {
 	printf("%-*s: %d\n", EHDR_NAMEGAP, "String Table Index", ehdr.e_shstrndx);
 }
 
+int shdr64_print(int fd) {
+	Elf64_Ehdr ehdr;
+	Elf64_Shdr shdr;
+	char * str_ptr;
+	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+	if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) < 0) {  return -1;  }
+
+	if (ehdr.e_shnum == 0) {
+		printf("Section Header Table Not Exist. Skip.\n");
+		return 0;
+	}
+
+	for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
+		if (read(fd, &shdr, ehdr.e_shentsize) < 0) {
+			fprintf(stderr, "WARNING: Failed to read Section Header, index: %d. Skip.\n", idx);
+			continue;
+		}
+		if (shdr.sh_type == SHT_NULL) {  continue;  }
+
+		printf("\n==| Section %d |==================\n", idx);
+
+		str_ptr = strtab64_read(fd, shdr.sh_name);
+		if (str_ptr == NULL) {
+			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Name Idx", shdr.sh_name);
+		} else {
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Name Idx", str_ptr);
+		}
+		// Section Type
+		switch (shdr.sh_type) {
+			case SHT_NULL:
+				str_ptr="Unused Section Entry";
+				break;
+			case SHT_PROGBITS:
+				str_ptr="Program Data";
+				break;
+			case SHT_SYMTAB:
+				str_ptr="Symbol Table";
+				break;
+			case SHT_STRTAB:
+				str_ptr="String Table";
+				break;
+			case SHT_RELA:
+				str_ptr="Relocation Entries with addends";
+				break;
+			case SHT_HASH:
+				str_ptr="Symbol Hash Table";
+				break;
+			case SHT_DYNAMIC:
+				str_ptr="Dynamic Linking Information";
+				break;
+			case SHT_NOTE:
+				str_ptr="Notes";
+				break;
+			case SHT_NOBITS:
+				str_ptr="Program Space with no data (.bss)";
+				break;
+			case SHT_REL:
+				str_ptr="Relocation Entries without addends";
+				break;
+			case SHT_SHLIB:
+				str_ptr="Reserved Section";
+				break;
+			case SHT_DYNSYM:
+				str_ptr="Dynamic Linker Symbol Table";
+				break;
+			case SHT_INIT_ARRAY:
+				str_ptr="Array of Constructors";
+				break;
+			case SHT_FINI_ARRAY:
+				str_ptr="Array of Destructors";
+				break;
+			case SHT_PREINIT_ARRAY:
+				str_ptr="Array of Pre-constructors";
+				break;
+			case SHT_GROUP:
+				str_ptr="Section Group";
+				break;
+			case SHT_SYMTAB_SHNDX:
+				str_ptr="Extended Section Indices";
+				break;
+			default:
+				str_ptr="Unknown";
+		}
+		printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Type", str_ptr);
+		printf("%-*s: %ld (bytes)\n", SHDR_NAMEGAP, "Section Size", shdr.sh_size);
+		printf("%-*s: %d \n", SHDR_NAMEGAP, "Section Link Value", shdr.sh_link);
+
+		if ((str_ptr = (char*)malloc(sizeof(char)*3*sizeof(Elf64_Word))) == NULL) {
+			printf("%-*s: [Internal Error: Memory Allocation Failed]\n", SHDR_NAMEGAP, "Section Info (Hex)");
+		} else {
+			bin_to_hex(&shdr.sh_info, str_ptr, sizeof(char)*3*sizeof(Elf64_Word));
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Info (Hex)", str_ptr);
+			free(str_ptr);
+		} 
+		
+		if ((str_ptr = (char*)malloc(sizeof(char)*3*sizeof(Elf64_Xword))) == NULL) {
+			printf("%-*s: [Internal Error: Memory Allocation Failed]\n", SHDR_NAMEGAP, "Attributes");
+		} else {
+			bin_to_hex(&shdr.sh_flags, str_ptr, sizeof(char)*3*sizeof(Elf64_Xword));
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Attributes", str_ptr);
+			free(str_ptr);
+		} 
+		if ((shdr.sh_flags & SHF_WRITE) == SHF_WRITE) {  printf("\tWritable\n");  }
+		if ((shdr.sh_flags & SHF_ALLOC) == SHF_ALLOC) {  printf("\tMemory Loaded (Address: 0x%lx / Align: 0x%lx)\n", shdr.sh_addr, shdr.sh_addralign);  }
+		if ((shdr.sh_flags & SHF_EXECINSTR) == SHF_EXECINSTR) {  printf("\tInstruction Exist\n");  }
+		if ((shdr.sh_flags & SHF_MERGE) == SHF_MERGE) {  printf("\tCould be Merged\n");  }
+		if ((shdr.sh_flags & SHF_STRINGS) == SHF_STRINGS) {  printf("\tString Exist\n");  }
+		if ((shdr.sh_flags & SHF_INFO_LINK) == SHF_INFO_LINK) {  printf("\tLink to (idx: %d)\n", shdr.sh_link);  }
+		if ((shdr.sh_flags & SHF_LINK_ORDER) == SHF_LINK_ORDER) {  printf("\tNeed to preserve Order\n");  }
+		if ((shdr.sh_flags & SHF_OS_NONCONFORMING) == SHF_OS_NONCONFORMING) {  printf("\tNon-Standard OS Handling Needed\n");  }
+		if ((shdr.sh_flags & SHF_GROUP) == SHF_GROUP) {  printf("\tMember of Group\n");  }
+		if ((shdr.sh_flags & SHF_TLS) == SHF_TLS) {  printf("\tThread-local Data Exist\n");  }
+		if ((shdr.sh_flags & SHF_COMPRESSED) == SHF_COMPRESSED) {  printf("\tCompressed Data Exist\n");  }
+		
+		// Section Entry Size (If Needed)
+		if (shdr.sh_entsize != 0) {
+			printf("%-*s: 0x%lx / %ld (bytes)\n", SHDR_NAMEGAP, "Fixed Entry Size", shdr.sh_entsize, shdr.sh_entsize);
+		}
+		
+	}
+
+}
