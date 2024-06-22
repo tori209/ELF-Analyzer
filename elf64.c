@@ -12,6 +12,9 @@
 #include "util.h"
 
 int ehdr64_read (int fd, Elf64_Ehdr * buf) {
+	off_t prev_lseek;
+
+	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
 	if (lseek(fd, 0, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, sizeof(Elf64_Ehdr)) < 0) {  return -1;  }
 
@@ -32,12 +35,17 @@ int ehdr64_read (int fd, Elf64_Ehdr * buf) {
 		convert_ordering(&buf->e_shstrndx, sizeof(Elf64_Half));
 	}
 
+	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
 	return 0;
 }
 
-int shdr64_read (int fd, Elf64_Shdr * buf, int idx) {
+int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
+	off_t prev_lseek;
 	Elf64_Ehdr ehdr;
-	ehdr64_read(fd, &ehdr);
+	
+	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
+	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+	if (ehdr.e_shoff == 0) {  return -1;  } // Section Header Table Not Exist
 	if (lseek(fd, ehdr.e_shoff + idx * ehdr.e_shentsize, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, ehdr.e_shentsize) < 0) {  return -1;  }
 
@@ -55,6 +63,7 @@ int shdr64_read (int fd, Elf64_Shdr * buf, int idx) {
 		convert_ordering(&buf->sh_entsize, sizeof(Elf64_Xword));
 	}
 
+	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
 	return 0;
 }
 
@@ -293,7 +302,6 @@ int shdr64_print(int fd) {
 		if (shdr.sh_entsize != 0) {
 			printf("%-*s: 0x%lx / %ld (bytes)\n", SHDR_NAMEGAP, "Fixed Entry Size", shdr.sh_entsize, shdr.sh_entsize);
 		}
-		
 	}
-
 }
+
