@@ -40,6 +40,21 @@ int shdr64_read (int fd, Elf64_Shdr * buf, int idx) {
 	ehdr64_read(fd, &ehdr);
 	if (lseek(fd, ehdr.e_shoff + idx * ehdr.e_shentsize, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, ehdr.e_shentsize) < 0) {  return -1;  }
+
+	if ((is_little_endian() && (ehdr.e_ident[EI_DATA] == ELFDATA2MSB))
+		|| ((!is_little_endian()) && (ehdr.e_ident[EI_DATA] == ELFDATA2LSB))) {
+		convert_ordering(&buf->sh_name, sizeof(Elf64_Word));
+		convert_ordering(&buf->sh_type, sizeof(Elf64_Word));
+		convert_ordering(&buf->sh_flags, sizeof(Elf64_Xword));
+		convert_ordering(&buf->sh_addr, sizeof(Elf64_Addr));
+		convert_ordering(&buf->sh_offset, sizeof(Elf64_Off));
+		convert_ordering(&buf->sh_size, sizeof(Elf64_Xword));
+		convert_ordering(&buf->sh_link, sizeof(Elf64_Word));
+		convert_ordering(&buf->sh_info, sizeof(Elf64_Word));
+		convert_ordering(&buf->sh_addralign, sizeof(Elf64_Xword));
+		convert_ordering(&buf->sh_entsize, sizeof(Elf64_Xword));
+	}
+
 	return 0;
 }
 
@@ -244,6 +259,7 @@ int shdr64_print(int fd) {
 				str_ptr="Unknown";
 		}
 		printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Type", str_ptr);
+		printf("%-*s: 0x%lx / %ld\n", SHDR_NAMEGAP, "Section Offset", shdr.sh_offset, shdr.sh_offset);
 		printf("%-*s: %ld (bytes)\n", SHDR_NAMEGAP, "Section Size", shdr.sh_size);
 		printf("%-*s: %d \n", SHDR_NAMEGAP, "Section Link Value", shdr.sh_link);
 
