@@ -13,6 +13,7 @@
 
 int ehdr64_read (int fd, Elf64_Ehdr * buf) {
 	off_t prev_lseek;
+	static Elf64_Ehdr ehdr;
 
 	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
 	if (lseek(fd, 0, SEEK_SET) < 0) {  return -1;  }
@@ -41,11 +42,18 @@ int ehdr64_read (int fd, Elf64_Ehdr * buf) {
 
 int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
 	off_t prev_lseek;
-	Elf64_Ehdr ehdr;
-	
+	static Elf64_Ehdr ehdr;
+	static ino_t curr_ino = 0;
+	struct stat st;
+
 	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
-	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+
+	if (fstat(fd, &st) < 0 || curr_ino != st.st_ino) {
+		if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+		curr_ino = st.st_ino;
+	}
 	if (ehdr.e_shoff == 0) {  return -1;  } // Section Header Table Not Exist
+	if (idx >= ehdr.e_shnum) {  return -1;  } // Out of bound
 	if (lseek(fd, ehdr.e_shoff + idx * ehdr.e_shentsize, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, ehdr.e_shentsize) < 0) {  return -1;  }
 
@@ -61,6 +69,38 @@ int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
 		convert_ordering(&buf->sh_info, sizeof(Elf64_Word));
 		convert_ordering(&buf->sh_addralign, sizeof(Elf64_Xword));
 		convert_ordering(&buf->sh_entsize, sizeof(Elf64_Xword));
+	}
+
+	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
+	return 0;
+}
+
+int phdr64_read (int fd, Elf64_Phdr * buf, Elf64_Half idx) {
+	off_t prev_lseek;
+	static Elf64_Ehdr ehdr;
+	static ino_t curr_ino = 0;
+	struct stat st;
+	
+	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
+	if (fstat(fd, &st) < 0 || st.st_ino != curr_ino) {
+		if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+		curr_ino = st.st_ino;
+	}
+	if (ehdr.e_phoff == 0) {  return -1;  }		// Program Header Table Not Exist
+	if (idx >= ehdr.e_phnum) {  return -1;  }	// Out of Bound
+	if (lseek(fd, ehdr.e_phoff + idx * ehdr.e_phentsize, SEEK_SET) < 0) {  return -1;  }
+	if (read(fd, buf, ehdr.e_phentsize) < 0) {  return -1;  }
+	
+	if ((is_little_endian() && (ehdr.e_ident[EI_DATA] == ELFDATA2MSB))
+		|| ((!is_little_endian()) && (ehdr.e_ident[EI_DATA] == ELFDATA2LSB))) {
+		convert_ordering(&buf->p_type, sizeof(Elf64_Word));
+		convert_ordering(&buf->p_flags, sizeof(Elf64_Word));
+		convert_ordering(&buf->p_offset, sizeof(Elf64_Off));
+		convert_ordering(&buf->p_vaddr, sizeof(Elf64_Addr));
+		convert_ordering(&buf->p_paddr, sizeof(Elf64_Addr));
+		convert_ordering(&buf->p_filesz, sizeof(Elf64_Xword));
+		convert_ordering(&buf->p_memsz, sizeof(Elf64_Xword));
+		convert_ordering(&buf->p_align, sizeof(Elf64_Xword));
 	}
 
 	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
@@ -189,12 +229,12 @@ int shdr64_print(int fd) {
 	Elf64_Shdr shdr;
 	char * str_ptr;
 	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
-	if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) < 0) {  return -1;  }
-
 	if (ehdr.e_shnum == 0) {
 		printf("Section Header Table Not Exist. Skip.\n");
 		return 0;
 	}
+
+	if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) < 0) {  return -1;  }
 
 	for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
 		if (read(fd, &shdr, ehdr.e_shentsize) < 0) {
@@ -305,3 +345,111 @@ int shdr64_print(int fd) {
 	}
 }
 
+int phdr64_print(int fd) {
+	Elf64_Ehdr ehdr;
+	Elf64_Phdr phdr;
+	char * str_ptr;
+
+	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+	if (ehdr.e_phnum == 0) {
+		printf("Program Header Table Not Exist. Skip.\n");
+		return 0;
+	}
+
+	for (Elf64_Half idx = 0; idx < ehdr.e_phnum; idx++) {
+		if (phdr64_read(fd, &phdr, idx) < 0) {
+			fprintf(stderr, "WARNING: Failed to read Program Header, index: %d. Skip.\n", idx);
+			continue;
+		}
+		
+		printf("\n==| Segment %d |==================\n", idx);
+		// Program Header Type
+		switch (phdr.p_type) {
+			case PT_NULL:
+				str_ptr = "Program header table entry unused";
+				break;
+			case PT_LOAD:
+				str_ptr = "Loadable program segment";
+				break;
+			case PT_DYNAMIC:
+				str_ptr = "Dynamic linking information";
+				break;
+			case PT_INTERP:
+				str_ptr = "Program interpreter";
+				break;
+			case PT_NOTE:
+				str_ptr = "Auxiliary information (Notes)";
+				break;
+			case PT_SHLIB:
+				str_ptr = "Reserved (SHLIB)";
+				break;
+			case PT_PHDR:
+				str_ptr = "Entry for header table itself";
+				break;
+			case PT_TLS:
+				str_ptr = "Thread-local storage segment";
+				break;
+#if defined(__gnu_linux__) || defined (__sun)
+			case PT_GNU_EH_FRAME:
+				str_ptr = "GCC .eh_frame_hdr segment (GNU-Specific)";
+				break;
+			case PT_GNU_STACK:
+				str_ptr = "Stack Excutability Information (GNU-Specific)";
+				break;
+			case PT_GNU_RELRO:
+				str_ptr = "Read-only List after Relocation (GNU-Specific)";
+				break;
+			case PT_GNU_PROPERTY:
+				str_ptr = "GNU Property (GNU-Specific)";
+				break;
+			case PT_SUNWBSS:
+				str_ptr = "Sun Specific Segment [SUNWBSS] (Sun-Specific)";
+				break;
+			case PT_SUNWSTACK:
+				str_ptr = "Stack Segment (Sun-Specific)";
+				break;
+#endif
+			default:
+#if defined(__gnu_linux__) || defined (__sun)
+				if (PT_LOSUNW <= phdr.p_type && phdr.p_type <= PT_HISUNW) {
+					str_ptr = "Unknown Sun-Specific Segment";
+				} else
+#endif
+				if (PT_LOOS <= phdr.p_type && phdr.p_type <= PT_HIOS) {
+					str_ptr = "Unknown OS-Specific Segment";
+				} else if (PT_LOPROC <= phdr.p_type && phdr.p_type <= PT_HIPROC) {
+					str_ptr = "Unknown Processor-Specific Segment";
+				} else {
+					str_ptr = "Undefined Program Header Type";
+				}
+		}
+		printf("%-*s: %s\n", PHDR_NAMEGAP, "Segment Type", str_ptr);
+
+
+		// Segment File Offset
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "File Offset", phdr.p_offset, phdr.p_offset);
+		// Virtual & Physical Address
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Virtual Memory Address", phdr.p_vaddr, phdr.p_vaddr);
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Physical Address", phdr.p_paddr, phdr.p_paddr);
+		// File Size & Memory Size
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Size in File", phdr.p_filesz, phdr.p_filesz);
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Size in Memory", phdr.p_memsz, phdr.p_memsz);
+		// Flags
+		str_ptr = (char *)malloc(sizeof(char) * 3 * sizeof(Elf64_Word));
+		bin_to_hex(&phdr.p_flags, str_ptr, sizeof(char) * 3 * sizeof(Elf64_Word));
+		printf("%-*s: %s ", PHDR_NAMEGAP, "Flags", str_ptr);
+		free(str_ptr);
+
+		str_ptr = (char *)malloc(sizeof(char) * 6);
+		memset(str_ptr, '\0', 6);
+		str_ptr[0] = '(';
+		str_ptr[1] = ((phdr.p_flags & PF_R) == PF_R ? 'r' : '-');
+		str_ptr[2] = ((phdr.p_flags & PF_W) == PF_W ? 'w' : '-');
+		str_ptr[3] = ((phdr.p_flags & PF_X) == PF_X ? 'x' : '-');
+		str_ptr[4] = ')';
+		printf("%s\n", str_ptr);
+		free(str_ptr);
+
+		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Alignment Constraint", phdr.p_align, phdr.p_align);
+	}
+}

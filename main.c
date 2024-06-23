@@ -115,16 +115,20 @@ int main(int argc, char* argv[]) {
 		exit(1);
 	}
 	
-	printf("\nParsing ELF Identification... ======================\n");
+	printf("\nParsing ELF Identification... ================================\n");
 	elfid_parser(fd);
 
-	printf("\nParsing ELF Header... ==============================\n");
+	printf("\nParsing ELF Header... ========================================\n");
 	if (e_ident[EI_CLASS] == 1) {  }
 	if (e_ident[EI_CLASS] == 2) { ehdr64_print(fd); }
 
 	printf("\nParsing Section Header Table... ==============================\n");
 	if (e_ident[EI_CLASS] == 1) {  }
 	if (e_ident[EI_CLASS] == 2) { shdr64_print(fd); }
+
+	printf("\nParsing Program Header Table... ==============================\n");
+	if (e_ident[EI_CLASS] == 1) {  }
+	if (e_ident[EI_CLASS] == 2) {  phdr64_print(fd);  }
 
 	close(fd);
 	return 0;
