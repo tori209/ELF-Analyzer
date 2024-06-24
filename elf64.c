@@ -208,7 +208,7 @@ int ehdr64_print (int fd) {
 
 int shdr64_print(int fd) {
 	Elf64_Ehdr ehdr;
-	Elf64_Shdr shdr;
+	Elf64_Shdr shdr, link_shdr;
 	char * str_ptr;
 	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
 	if (ehdr.e_shnum == 0) {
@@ -336,8 +336,13 @@ int shdr64_print(int fd) {
 		printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Type", str_ptr);
 		printf("%-*s: 0x%lx / %ld\n", SHDR_NAMEGAP, "Section Offset", shdr.sh_offset, shdr.sh_offset);
 		printf("%-*s: %ld (bytes)\n", SHDR_NAMEGAP, "Section Size", shdr.sh_size);
-		printf("%-*s: %d \n", SHDR_NAMEGAP, "Section Link Value", shdr.sh_link);
-
+		if (idx == 0
+			|| shdr.sh_link == 0
+			|| shdr64_read(fd, &link_shdr, shdr.sh_link) < 0) {
+			printf("%-*s: %d\n", SHDR_NAMEGAP, "Section Link Value", shdr.sh_link);
+		} else {
+			printf("%-*s: %d (%s)\n", SHDR_NAMEGAP, "Section Link Value", shdr.sh_link, shstrtab64_read(fd, link_shdr.sh_name));
+		}
 		if ((str_ptr = (char*)malloc(sizeof(char)*3*sizeof(Elf64_Word))) == NULL) {
 			printf("%-*s: [Internal Error: Memory Allocation Failed]\n", SHDR_NAMEGAP, "Section Info (Hex)");
 		} else {

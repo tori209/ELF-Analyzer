@@ -1,6 +1,6 @@
 # ELF-Analyzer
 
-Study Purpose - ELF Structure Analyzer (like `readelf`) 
+Study Purpose - ELF Structure Analyzer (like `readelf`)  
 Written In C
 
 # Develop Env.
