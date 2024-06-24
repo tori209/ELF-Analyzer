@@ -6,7 +6,6 @@
 #define OPT_RELRO	(1U << 5)
 #define OPT_NOTE	(1U << 6)
 #define OPT_DYN		(1U << 7)
-#define OPT_NHDR	(1U << 8)
 
 #define EHDR_NAMEGAP 28
 #define SHDR_NAMEGAP 28

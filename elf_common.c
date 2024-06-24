@@ -33,12 +33,14 @@ static void __init () {
 }
 
 int read_ident(int fd, char buf[EI_NIDENT]) {
-	off_t prev_seek;
+	return pread(fd, buf, EI_NIDENT, 0);
+}
 
-	if ((prev_seek = lseek(fd, 0, SEEK_CUR)) < 0 ) {  return -1;  }
-	if (lseek(fd, 0, SEEK_SET) < 0) {  return -1;  }
-	if (read(fd, buf, EI_NIDENT) < 0) {  return -1;  }
-	if (lseek(fd, prev_seek, SEEK_SET) < 0) {  return -1;  }
+int is_elf(int fd) {
+	unsigned char e_ident[EI_NIDENT];
+	
+	if (read_ident(fd, e_ident) < 0) {  return -1;  }
+	if (strncmp(e_ident, magic_str, 4) == 0) {  return 1;  }
 	return 0;
 }
 

@@ -20,7 +20,7 @@ int main(int argc, char* argv[]) {
 	file_dir = argv[argc-1];
 
 	if (argc < 2) {
-		fprintf(stderr, "Usage: %s [filename]\n", argv[0]);
+		fprintf(stderr, "Usage: %s [options] [filename]\n", argv[0]);
 		exit (1);
 	}
 
@@ -28,8 +28,13 @@ int main(int argc, char* argv[]) {
 		fprintf(stderr, "ERROR: %s\n", strerror(errno));
 		exit(1);
 	}
-	
-	while ((opt = getopt(argc, argv, "iespSn")) != -1) {
+
+	if (!is_elf(fd)) {
+		fprintf(stderr, "ERROR: %s is not ELF file.\n", file_dir);
+		exit(1);
+	}
+
+	while ((opt = getopt(argc, argv, "iesprSnd")) != -1) {
 		switch (opt) {
 			case 'i':
 				options |= OPT_IDENT;
@@ -46,8 +51,14 @@ int main(int argc, char* argv[]) {
 			case 's': // Symbol Table
 				options |= OPT_SYMS;
 				break;
+			case 'r': // RELRO Entry
+				options |= OPT_RELRO;
+				break;
 			case 'n': // Notes
 				options |= OPT_NOTE;
+				break;
+			case 'd': // Dynamic Tags
+				options |= OPT_DYN;
 				break;
 			case '?': // Unknown Options
 			default: // Unknown Options
@@ -85,26 +96,25 @@ int main(int argc, char* argv[]) {
 	}
 
 	if ((options & OPT_SYMS) == OPT_SYMS) {
+		printf("\nParsing Symbol Tables... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
 		if (e_ident[EI_CLASS] == 2) {  symbol64_print(fd);  }
 	}
 	
 	if ((options & OPT_RELRO) == OPT_RELRO) {
-		if (e_ident[EI_CLASS] == 1) {    }
-		if (e_ident[EI_CLASS] == 2) {    }
-	}
-
-	if ((options & OPT_NOTE) == OPT_NOTE) {
+		printf("\nParsing Relocation Entries... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
 		if (e_ident[EI_CLASS] == 2) {    }
 	}
 
 	if ((options & OPT_DYN) == OPT_DYN) {
+		printf("\nParsing Dynamic Tags... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
 		if (e_ident[EI_CLASS] == 2) {    }
 	}
 
-	if ((options & OPT_NHDR) == OPT_NHDR) {
+	if ((options & OPT_NOTE) == OPT_NOTE) {
+		printf("\nParsing Notes... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
 		if (e_ident[EI_CLASS] == 2) {    }
 	}
