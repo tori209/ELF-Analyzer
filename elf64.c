@@ -154,7 +154,7 @@ char * strtab64_read (int fd, int offset) {
 		curr_ino = 0;
 
 		if (ehdr64_read(fd, &ehdr) < 0) {  return NULL;  }
-		for (Elf64_Half idx = 1; idx <= ehdr.e_shnum; idx++) {
+		for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
 			// Find .strtab
 			if (shdr64_read(fd, &shdr, idx) < 0) {
 				fprintf(stderr, "WARNING: strtab64_read failed reading Section Table idx %d.\n", idx);
@@ -273,13 +273,13 @@ int shdr64_print(int fd) {
 
 	if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) < 0) {  return -1;  }
 
-	for (Elf64_Half idx = 1; idx <= ehdr.e_shnum; idx++) {
+	for (Elf64_Half idx = 0; idx < ehdr.e_shnum; idx++) {
 		if (read(fd, &shdr, ehdr.e_shentsize) < 0) {
 			fprintf(stderr, "WARNING: Failed to read Section Header, index: %d. Skip.\n", idx);
 			continue;
 		}
 
-		printf("\n==| Section %d |==================\n", idx-1);
+		printf("\n==| Section %d |==================\n", idx);
 
 		str_ptr = shstrtab64_read(fd, shdr.sh_name);
 		if (str_ptr == NULL) {
