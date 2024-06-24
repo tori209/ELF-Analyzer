@@ -12,13 +12,9 @@
 #include "util.h"
 
 int ehdr64_read (int fd, Elf64_Ehdr * buf) {
-	off_t prev_lseek;
 	static Elf64_Ehdr ehdr;
 
-	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
-	if (lseek(fd, 0, SEEK_SET) < 0) {  return -1;  }
-	if (read(fd, buf, sizeof(Elf64_Ehdr)) < 0) {  return -1;  }
-
+	if (pread(fd, buf, sizeof(Elf64_Ehdr), 0) < 0) {  return -1;  }
 	if ((is_little_endian() && (buf->e_ident[EI_DATA] == ELFDATA2MSB))
 		|| ((!is_little_endian()) && (buf->e_ident[EI_DATA] == ELFDATA2LSB))) {
 		convert_ordering(&buf->e_type, sizeof(Elf64_Half));
@@ -35,8 +31,6 @@ int ehdr64_read (int fd, Elf64_Ehdr * buf) {
 		convert_ordering(&buf->e_shnum, sizeof(Elf64_Half));
 		convert_ordering(&buf->e_shstrndx, sizeof(Elf64_Half));
 	}
-
-	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
 	return 0;
 }
 
@@ -46,16 +40,13 @@ int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
 	static ino_t curr_ino = 0;
 	struct stat st;
 
-	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
-
 	if (fstat(fd, &st) < 0 || curr_ino != st.st_ino) {
 		if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
 		curr_ino = st.st_ino;
 	}
 	if (ehdr.e_shoff == 0) {  return -1;  } // Section Header Table Not Exist
-	if (idx > ehdr.e_shnum) {  return -1;  } // Out of bound
-	if (lseek(fd, ehdr.e_shoff + idx * ehdr.e_shentsize, SEEK_SET) < 0) {  return -1;  }
-	if (read(fd, buf, ehdr.e_shentsize) < 0) {  return -1;  }
+	if (idx >= ehdr.e_shnum) {  return -1;  } // Out of bound
+	if (pread(fd, buf, ehdr.e_shentsize, ehdr.e_shoff + idx * ehdr.e_shentsize) < 0) {  return -1;  }
 
 	if ((is_little_endian() && (ehdr.e_ident[EI_DATA] == ELFDATA2MSB))
 		|| ((!is_little_endian()) && (ehdr.e_ident[EI_DATA] == ELFDATA2LSB))) {
@@ -70,8 +61,6 @@ int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
 		convert_ordering(&buf->sh_addralign, sizeof(Elf64_Xword));
 		convert_ordering(&buf->sh_entsize, sizeof(Elf64_Xword));
 	}
-
-	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
 	return 0;
 }
 
@@ -81,15 +70,13 @@ int phdr64_read (int fd, Elf64_Phdr * buf, Elf64_Half idx) {
 	static ino_t curr_ino = 0;
 	struct stat st;
 	
-	if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
 	if (fstat(fd, &st) < 0 || st.st_ino != curr_ino) {
 		if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
 		curr_ino = st.st_ino;
 	}
 	if (ehdr.e_phoff == 0) {  return -1;  }		// Program Header Table Not Exist
 	if (idx >= ehdr.e_phnum) {  return -1;  }	// Out of Bound
-	if (lseek(fd, ehdr.e_phoff + idx * ehdr.e_phentsize, SEEK_SET) < 0) {  return -1;  }
-	if (read(fd, buf, ehdr.e_phentsize) < 0) {  return -1;  }
+	if (pread(fd, buf, ehdr.e_phentsize, ehdr.e_phoff + idx * ehdr.e_phentsize) < 0) {  return -1;  }
 	
 	if ((is_little_endian() && (ehdr.e_ident[EI_DATA] == ELFDATA2MSB))
 		|| ((!is_little_endian()) && (ehdr.e_ident[EI_DATA] == ELFDATA2LSB))) {
@@ -102,39 +89,34 @@ int phdr64_read (int fd, Elf64_Phdr * buf, Elf64_Half idx) {
 		convert_ordering(&buf->p_memsz, sizeof(Elf64_Xword));
 		convert_ordering(&buf->p_align, sizeof(Elf64_Xword));
 	}
-
-	if (lseek(fd, prev_lseek, SEEK_SET) < 0) {  return -1;  }
 	return 0;
 }
 
 char * shstrtab64_read (int fd, int offset) {
+	struct stat st;
 	static char * strtab = NULL;
-	static int curr_fd = -1;
+	static ino_t curr_ino = 0;
 	static Elf64_Word size = -1;
 
-	if (curr_fd != fd) {
+	if (fstat(fd, &st) < 0 || st.st_ino != curr_ino) {
 		Elf64_Ehdr ehdr;
 		Elf64_Shdr shdr;
-		off_t prev_lseek;
 
-		if ((prev_lseek = lseek(fd, 0, SEEK_CUR)) < 0) {  return NULL;  }
+		if (ehdr64_read(fd, &ehdr) < 0) {  return NULL;  }
 
 		// Initialization
 		if (strtab != NULL) {  free(strtab);  }
-		if (ehdr64_read (fd, &ehdr) < 0)  {  curr_fd = -1; return NULL;  }
-		if (shdr64_read (fd, &shdr, ehdr.e_shstrndx) < 0) {  curr_fd = -1; return NULL;  }
-		if ((strtab = (char*)malloc(shdr.sh_size)) == NULL) {  curr_fd = -1; return NULL;  }
+		if (ehdr64_read (fd, &ehdr) < 0  
+			|| shdr64_read (fd, &shdr, ehdr.e_shstrndx) < 0
+			|| (strtab = (char*)malloc(shdr.sh_size)) == NULL)
+		{  size = -1; curr_ino = 0; return NULL;  }
 		
 		// Memory Copy
-		if (lseek(fd, shdr.sh_offset, SEEK_SET) < 0) {  free(strtab); curr_fd = -1; return NULL;  }
-		if (read(fd, strtab, shdr.sh_size) < 0) {  free(strtab); curr_fd = -1; return NULL;  }
+		if (pread(fd, strtab, shdr.sh_size, shdr.sh_offset) < 0)
+		{  free(strtab); size = -1; curr_ino = 0; return NULL;  }
 		
 		size = shdr.sh_size;
-		curr_fd = fd;
-		if ((prev_lseek = lseek(fd, prev_lseek, SEEK_SET)) < 0) {  
-			fprintf(stderr, "FATAL ERROR: lseek restoration failed\n");
-			exit(1);
-	  	}
+		curr_ino = st.st_ino;
 	}
 	if (offset >= size) {  return NULL;  }
 	return &strtab[offset];
@@ -150,9 +132,6 @@ char * strtab64_read (int fd, int offset) {
 		Elf64_Ehdr ehdr;
 		Elf64_Shdr shdr;
 
-		size = -1;
-		curr_ino = 0;
-
 		if (ehdr64_read(fd, &ehdr) < 0) {  return NULL;  }
 		for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
 			// Find .strtab
@@ -163,9 +142,10 @@ char * strtab64_read (int fd, int offset) {
 			if (strcmp(".strtab", shstrtab64_read(fd, shdr.sh_name))) {  continue;  }
 			
 			// Initialization
-			if (strtab != NULL) {  free(strtab); return NULL;  }
-			if ((strtab = (char*)malloc(shdr.sh_size)) < 0) {  return NULL;  }
-			if (pread(fd, strtab, shdr.sh_size, shdr.sh_offset) < 0) {  return NULL;  }
+			if (strtab != NULL) {  free(strtab);  }
+			if ((strtab = (char*)malloc(shdr.sh_size)) < 0) {  size = -1; curr_ino = 0; return NULL;  }
+			if (pread(fd, strtab, shdr.sh_size, shdr.sh_offset) < 0)
+			{  free(strtab); size = -1; curr_ino = 0;return NULL;  }
 			
 			size = shdr.sh_size;
 			curr_ino = st.st_ino;
