@@ -53,7 +53,7 @@ int shdr64_read (int fd, Elf64_Shdr * buf, Elf64_Half idx) {
 		curr_ino = st.st_ino;
 	}
 	if (ehdr.e_shoff == 0) {  return -1;  } // Section Header Table Not Exist
-	if (idx >= ehdr.e_shnum) {  return -1;  } // Out of bound
+	if (idx > ehdr.e_shnum) {  return -1;  } // Out of bound
 	if (lseek(fd, ehdr.e_shoff + idx * ehdr.e_shentsize, SEEK_SET) < 0) {  return -1;  }
 	if (read(fd, buf, ehdr.e_shentsize) < 0) {  return -1;  }
 
@@ -107,7 +107,7 @@ int phdr64_read (int fd, Elf64_Phdr * buf, Elf64_Half idx) {
 	return 0;
 }
 
-char * strtab64_read (int fd, int offset) {
+char * shstrtab64_read (int fd, int offset) {
 	static char * strtab = NULL;
 	static int curr_fd = -1;
 	static Elf64_Word size = -1;
@@ -137,6 +137,43 @@ char * strtab64_read (int fd, int offset) {
 	  	}
 	}
 	if (offset >= size) {  return NULL;  }
+	return &strtab[offset];
+}
+
+char * strtab64_read (int fd, int offset) {
+	struct stat st;
+	static char * strtab = NULL;
+	static ino_t curr_ino = 0;
+	static Elf64_Xword size = -1;
+
+	if (fstat(fd, &st) < 0 || st.st_ino != curr_ino) {
+		Elf64_Ehdr ehdr;
+		Elf64_Shdr shdr;
+
+		size = -1;
+		curr_ino = 0;
+
+		if (ehdr64_read(fd, &ehdr) < 0) {  return NULL;  }
+		for (Elf64_Half idx = 1; idx <= ehdr.e_shnum; idx++) {
+			// Find .strtab
+			if (shdr64_read(fd, &shdr, idx) < 0) {
+				fprintf(stderr, "WARNING: strtab64_read failed reading Section Table idx %d.\n", idx);
+				continue;
+			}
+			if (strcmp(".strtab", shstrtab64_read(fd, shdr.sh_name))) {  continue;  }
+			
+			// Initialization
+			if (strtab != NULL) {  free(strtab); return NULL;  }
+			if ((strtab = (char*)malloc(shdr.sh_size)) < 0) {  return NULL;  }
+			if (pread(fd, strtab, shdr.sh_size, shdr.sh_offset) < 0) {  return NULL;  }
+			
+			size = shdr.sh_size;
+			curr_ino = st.st_ino;
+			break;	
+		}
+	}
+
+	if (offset >= size) {  return NULL;  }	
 	return &strtab[offset];
 }
 
@@ -236,7 +273,7 @@ int shdr64_print(int fd) {
 
 	if (lseek(fd, (off_t)ehdr.e_shoff, SEEK_SET) < 0) {  return -1;  }
 
-	for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
+	for (Elf64_Half idx = 1; idx <= ehdr.e_shnum; idx++) {
 		if (read(fd, &shdr, ehdr.e_shentsize) < 0) {
 			fprintf(stderr, "WARNING: Failed to read Section Header, index: %d. Skip.\n", idx);
 			continue;
@@ -244,11 +281,11 @@ int shdr64_print(int fd) {
 
 		printf("\n==| Section %d |==================\n", idx-1);
 
-		str_ptr = strtab64_read(fd, shdr.sh_name);
+		str_ptr = shstrtab64_read(fd, shdr.sh_name);
 		if (str_ptr == NULL) {
-			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Name Idx", shdr.sh_name);
+			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Section Name", shdr.sh_name);
 		} else {
-			printf("%-*s: %s\n", SHDR_NAMEGAP, "Name Idx", str_ptr);
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Name", str_ptr);
 		}
 		// Section Type
 		switch (shdr.sh_type) {
@@ -303,8 +340,53 @@ int shdr64_print(int fd) {
 			case SHT_SYMTAB_SHNDX:
 				str_ptr="Extended Section Indices";
 				break;
+#if defined(__gnu_linux__) || defined (__sun)
+			case SHT_GNU_ATTRIBUTES:
+				str_ptr="Object attributes (GNU-Specific)";
+				break;
+			case SHT_GNU_HASH:
+				str_ptr="GNU-style hash table (GNU-Specific)";
+				break;
+			case SHT_GNU_LIBLIST:
+				str_ptr="Prelink library list (GNU-Specific)";
+				break;
+			case SHT_CHECKSUM:
+				str_ptr="Checksum for DSO content (GNU-Specific)";
+				break;
+			case SHT_SUNW_move:
+				str_ptr="SHT_SUNW_move (Sun-Specific)";
+				break;
+			case SHT_SUNW_COMDAT:
+				str_ptr="SHT_SUNW_COMDAT (Sun-Specific)";
+				break;
+			case SHT_SUNW_syminfo:
+				str_ptr="SHT_SUNW_syminfo (Sun-Specific)";
+				break;
+			case SHT_GNU_verdef:
+				str_ptr="Version definition section (GNU-Specific)";
+				break;
+			case SHT_GNU_verneed:
+				str_ptr="Version needs section (GNU-Specific)";
+				break;
+			case SHT_GNU_versym:
+				str_ptr="Version symbol table (GNU-Specific)";
+				break;
+#endif
 			default:
-				str_ptr="Unknown";
+#if defined(__gnu_linux__) || defined (__sun)
+				if (SHT_LOSUNW <= shdr.sh_type && shdr.sh_type <= SHT_HISUNW) {
+					str_ptr="Unknown Sun-Specific Type";
+				} else
+#endif
+				if (SHT_LOOS <= shdr.sh_type && shdr.sh_type <= SHT_HIOS) {
+					str_ptr="Unknown OS-Specific Type";
+				} else if (SHT_LOPROC <= shdr.sh_type && shdr.sh_type <= SHT_HIPROC) {
+					str_ptr="Unknown Processor-Specific Type";
+				} else if (SHT_LOUSER <= shdr.sh_type && shdr.sh_type <= SHT_HIUSER) {
+					str_ptr="Unknown User-Specific Type";
+				} else {
+					str_ptr="Unknown";
+				}
 		}
 		printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Type", str_ptr);
 		printf("%-*s: 0x%lx / %ld\n", SHDR_NAMEGAP, "Section Offset", shdr.sh_offset, shdr.sh_offset);
@@ -452,4 +534,79 @@ int phdr64_print(int fd) {
 
 		printf("%-*s: 0x%lx / %ld\n", PHDR_NAMEGAP, "Alignment Constraint", phdr.p_align, phdr.p_align);
 	}
+}
+
+int symbol64_print(int fd) {
+	off_t prev_seek;
+	char * str_ptr;
+	Elf64_Shdr shdr;
+	Elf64_Sym sym;
+
+	if ((prev_seek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
+	for (Elf64_Half sh_idx = 1; shdr64_read(fd, &shdr, sh_idx) >= 0; sh_idx++) {
+		if (shdr.sh_type != SHT_SYMTAB && shdr.sh_type != SHT_DYNSYM) {  continue;  }
+		if (shdr.sh_entsize != sizeof(Elf64_Sym)) {
+			fprintf(stderr, "WARNING: sh_entsize(0x%lx) != sizeof(Elf64_Sym; 0x%lx). Result May not correct.\n", shdr.sh_entsize, sizeof(Elf64_Sym));
+		}
+		// Section Name
+		printf("\n==| Section %d |==================\n", sh_idx-1);
+		str_ptr = shstrtab64_read(fd, shdr.sh_name);
+		if (str_ptr == NULL) {
+			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Section Name", shdr.sh_name);
+		} else {
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Name", str_ptr);
+		}
+
+		// Print Symbol Info.
+		for (Elf64_Half idx = 0; idx < shdr.sh_size / shdr.sh_entsize; idx++) {
+			if (pread(fd, &sym, sizeof(Elf64_Sym),shdr.sh_offset + idx * sizeof(Elf64_Sym)) < 0) {
+				fprintf(stderr, "WARNING: pread failed. index = %d\n", idx);
+				continue;
+			}
+			printf("--| Symbol %d |-----------------\n", idx);
+			printf("%-*s: %s\n", SYMS_NAMEGAP, "Symbol Name", strtab64_read(fd, sym.st_name));
+			printf("%-*s: %ld\n", SYMS_NAMEGAP, "Symbol Value", sym.st_value);
+			printf("%-*s: 0x%lx / %ld (bytes)\n", SYMS_NAMEGAP, "Symbol Size", sym.st_size, sym.st_size);
+
+			// Symbol Information
+			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_info))) < 0) {
+				fprintf(stderr, "WARNING: malloc failed. skip. / %s\n", strerror(errno));
+				continue;
+			}
+			bin_to_hex(&sym.st_name, str_ptr, sizeof(char) * 3 * sizeof(sym.st_info));
+			printf("%-*s: %s\n", SYMS_NAMEGAP, "Symbol Information", str_ptr);
+			free(str_ptr);
+
+			// Symbol Other
+			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_other))) < 0) {
+				fprintf(stderr, "WARNING: malloc failed. skip. / %s\n", strerror(errno));
+				continue;
+			}
+			bin_to_hex(&sym.st_other, str_ptr, sizeof(char) * 3 * sizeof(sym.st_other));
+			printf("%-*s: %s\n", SYMS_NAMEGAP, "Symbol Other", str_ptr);
+			free(str_ptr);
+			// Symbol Visibility
+			switch (ELF64_ST_VISIBILITY(sym.st_other)) {
+				case STV_DEFAULT:
+					str_ptr="Public (Default)";
+					break;
+				case STV_INTERNAL:
+					str_ptr="Processor-Specific Hidden Class";
+					break;
+				case STV_HIDDEN:
+					str_ptr="Hidden";
+					break;
+				case STV_PROTECTED:
+					str_ptr="Protected";
+					break;
+				default:
+					str_ptr = "Unknown";
+			}
+			printf("%-*s: %s\n", SYMS_NAMEGAP, "  |-- Symbol Visibility", str_ptr);
+			printf("%-*s: %d\n", SYMS_NAMEGAP, "Related Section Index", sym.st_shndx);
+		}
+	}
+
+	if (lseek(fd, prev_seek, SEEK_SET) < 0) {  return -1;  }
+	return 0;
 }

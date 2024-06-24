@@ -11,7 +11,7 @@ Ubuntu 22.04 / 5.10.16.3-microsoft-standard-WSL2
 	- [x] ELF Header
 	- [x] Section Header
 	- [x] Program Header
-	- [ ] Symbol Table
+	- [x] Symbol Table
 	- [ ] Relocation Entries
 - 32bit ELF
 	- [ ] ELF Header
