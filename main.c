@@ -104,7 +104,7 @@ int main(int argc, char* argv[]) {
 	if ((options & OPT_RELRO) == OPT_RELRO) {
 		printf("\nParsing Relocation Entries... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
-		if (e_ident[EI_CLASS] == 2) {    }
+		if (e_ident[EI_CLASS] == 2) {  relro64_print(fd);  }
 	}
 
 	if ((options & OPT_DYN) == OPT_DYN) {

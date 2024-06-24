@@ -517,19 +517,17 @@ int phdr64_print(int fd) {
 }
 
 int symbol64_print(int fd) {
-	off_t prev_seek;
 	char * str_ptr;
 	Elf64_Shdr shdr;
 	Elf64_Sym sym;
 
-	if ((prev_seek = lseek(fd, 0, SEEK_CUR)) < 0) {  return -1;  }
 	for (Elf64_Half sh_idx = 1; shdr64_read(fd, &shdr, sh_idx) >= 0; sh_idx++) {
 		if (shdr.sh_type != SHT_SYMTAB && shdr.sh_type != SHT_DYNSYM) {  continue;  }
 		if (shdr.sh_entsize != sizeof(Elf64_Sym)) {
 			fprintf(stderr, "WARNING: sh_entsize(0x%lx) != sizeof(Elf64_Sym; 0x%lx). Result May not correct.\n", shdr.sh_entsize, sizeof(Elf64_Sym));
 		}
 		// Section Name
-		printf("\n==| Section %d |==================\n", sh_idx-1);
+		printf("\n==| Section %d |==================\n", sh_idx);
 		str_ptr = shstrtab64_read(fd, shdr.sh_name);
 		if (str_ptr == NULL) {
 			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Section Name", shdr.sh_name);
@@ -586,7 +584,60 @@ int symbol64_print(int fd) {
 			printf("%-*s: %d\n", SYMS_NAMEGAP, "Related Section Index", sym.st_shndx);
 		}
 	}
+	return 0;
+}
 
-	if (lseek(fd, prev_seek, SEEK_SET) < 0) {  return -1;  }
+int relro64_print(int fd) {
+	char * str_ptr;
+	Elf64_Ehdr ehdr;
+	Elf64_Shdr shdr;
+	Elf64_Sym sym;
+	Elf64_Rel rel;
+	Elf64_Rela rela;
+
+	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+	for (Elf64_Half sh_idx = 1; sh_idx < ehdr.e_shnum; sh_idx++) {
+		if (shdr64_read(fd, &shdr, sh_idx) < 0) {
+			fprintf(stderr, "WARNING: Section reading Failed. Skip. / Index = %d\n", sh_idx);
+			continue;
+		}
+		if (shdr.sh_type != SHT_REL && shdr.sh_type != SHT_RELA) {  continue;  }
+		if (shdr.sh_entsize != sizeof (rel) && shdr.sh_entsize != sizeof(rela)) {
+			fprintf(stderr, "WARNING: entsize is not matched with ElfN_Rel / ElfN_Rela. Result may not correct.\n");
+		}
+		// Section Information
+		printf("\n==| Section %d |==================\n", sh_idx);
+		str_ptr = shstrtab64_read(fd, shdr.sh_name);
+		if (str_ptr == NULL) {
+			printf("%-*s: %d [Failed to read String Table]\n", SHDR_NAMEGAP, "Section Name", shdr.sh_name);
+		} else {
+			printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Name", str_ptr);
+		}
+
+		// RELA Print
+		for (Elf64_Half idx; (shdr.sh_type == SHT_RELA) && (idx < shdr.sh_size / shdr.sh_entsize); idx++) {
+			if (pread(fd, &rela, sizeof(rela), shdr.sh_offset + sizeof(rela) * idx) < 0) {
+				fprintf(stderr, "WARNING: pread failed. index = %d\n", idx);
+				continue;
+			}
+			printf("--| Rela Entry %d |---------------\n", idx);
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Entry Offset", rela.r_offset);
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Related Symbol Index", ELF64_R_SYM(rela.r_info));
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Relocation Type", ELF64_R_TYPE(rela.r_info));
+			printf("%-*s: 0x%lx / %ld\n", RELRO_NAMEGAP, "Addend", rela.r_addend, rela.r_addend);
+		}
+
+		// REL Print
+		for (Elf64_Half idx; (shdr.sh_type == SHT_REL) && (idx < shdr.sh_size / shdr.sh_entsize); idx++) {
+			if (pread(fd, &rela, sizeof(rel), shdr.sh_offset + sizeof(rel) * idx) < 0) {
+				fprintf(stderr, "WARNING: pread failed. index = %d\n", idx);
+				continue;
+			}
+			printf("--| Rel Entry %d |---------------\n", idx);
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Entry Offset", rel.r_offset);
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Related Symbol", ELF64_R_SYM(rel.r_info));
+			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Relocation Type", ELF64_R_TYPE(rel.r_info));
+		}
+	}
 	return 0;
 }
