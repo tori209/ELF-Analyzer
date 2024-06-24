@@ -122,41 +122,6 @@ char * shstrtab64_read (int fd, int offset) {
 	return &strtab[offset];
 }
 
-char * strtab64_read (int fd, int offset) {
-	struct stat st;
-	static char * strtab = NULL;
-	static ino_t curr_ino = 0;
-	static Elf64_Xword size = -1;
-
-	if (fstat(fd, &st) < 0 || st.st_ino != curr_ino) {
-		Elf64_Ehdr ehdr;
-		Elf64_Shdr shdr;
-
-		if (ehdr64_read(fd, &ehdr) < 0) {  return NULL;  }
-		for (Elf64_Half idx = 1; idx < ehdr.e_shnum; idx++) {
-			// Find .strtab
-			if (shdr64_read(fd, &shdr, idx) < 0) {
-				fprintf(stderr, "WARNING: strtab64_read failed reading Section Table idx %d.\n", idx);
-				continue;
-			}
-			if (strcmp(".strtab", shstrtab64_read(fd, shdr.sh_name))) {  continue;  }
-			
-			// Initialization
-			if (strtab != NULL) {  free(strtab);  }
-			if ((strtab = (char*)malloc(shdr.sh_size)) < 0) {  size = -1; curr_ino = 0; return NULL;  }
-			if (pread(fd, strtab, shdr.sh_size, shdr.sh_offset) < 0)
-			{  free(strtab); size = -1; curr_ino = 0;return NULL;  }
-			
-			size = shdr.sh_size;
-			curr_ino = st.st_ino;
-			break;	
-		}
-	}
-
-	if (offset >= size) {  return NULL;  }	
-	return &strtab[offset];
-}
-
 int ehdr64_print (int fd) {
 	Elf64_Ehdr ehdr;
 	Elf64_Shdr shdr;
@@ -518,7 +483,8 @@ int phdr64_print(int fd) {
 
 int symbol64_print(int fd) {
 	char * str_ptr;
-	Elf64_Shdr shdr;
+	char * strtab_ptr;
+	Elf64_Shdr shdr, link_shdr;
 	Elf64_Sym sym;
 
 	for (Elf64_Half sh_idx = 1; shdr64_read(fd, &shdr, sh_idx) >= 0; sh_idx++) {
@@ -535,6 +501,17 @@ int symbol64_print(int fd) {
 			printf("%-*s: %s\n", SHDR_NAMEGAP, "Section Name", str_ptr);
 		}
 
+		// Linked String Table Init
+		if (shdr64_read(fd, &link_shdr, shdr.sh_link) < 0
+			|| (strtab_ptr = (char*)malloc(sizeof(char) * link_shdr.sh_size)) < 0) {
+			strtab_ptr = NULL;
+			fprintf(stderr, "WARNING: Linked String Table Load Failed.\n");
+		} else if (pread(fd, strtab_ptr, link_shdr.sh_size, link_shdr.sh_offset) < 0) {
+			free(strtab_ptr);
+			strtab_ptr = NULL;
+			fprintf(stderr, "WARNING: Linked String Table Load Failed.\n");
+		} else {  /* Nothing to do */  }
+
 		// Print Symbol Info.
 		for (Elf64_Half idx = 0; idx < shdr.sh_size / shdr.sh_entsize; idx++) {
 			if (pread(fd, &sym, sizeof(Elf64_Sym),shdr.sh_offset + idx * sizeof(Elf64_Sym)) < 0) {
@@ -542,8 +519,18 @@ int symbol64_print(int fd) {
 				continue;
 			}
 			printf("--| Symbol %d |-----------------\n", idx);
-			printf("%-*s: %s\n", SYMS_NAMEGAP, "Symbol Name", strtab64_read(fd, sym.st_name));
+			
+			// Symbol Name
+			if (strtab_ptr == NULL) {
+				printf("%-*s: %d [Trace Failed]\n", SYMS_NAMEGAP, "Symbol Name", sym.st_name);
+			} else {
+				printf("%-*s: %s\n", SYMS_NAMEGAP, "Symbol Name", &strtab_ptr[sym.st_name]);
+			}
+
+			// Symbol Value
 			printf("%-*s: %ld\n", SYMS_NAMEGAP, "Symbol Value", sym.st_value);
+
+			// Symbol Size
 			printf("%-*s: 0x%lx / %ld (bytes)\n", SYMS_NAMEGAP, "Symbol Size", sym.st_size, sym.st_size);
 
 			// Symbol Information
@@ -583,6 +570,7 @@ int symbol64_print(int fd) {
 			printf("%-*s: %s\n", SYMS_NAMEGAP, "  |-- Symbol Visibility", str_ptr);
 			printf("%-*s: %d\n", SYMS_NAMEGAP, "Related Section Index", sym.st_shndx);
 		}
+		if (strtab_ptr != NULL) {  free(strtab_ptr);  }
 	}
 	return 0;
 }
