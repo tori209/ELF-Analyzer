@@ -508,7 +508,7 @@ int symbol64_print(int fd) {
 
 		// Linked String Table Init
 		if (shdr64_read(fd, &link_shdr, shdr.sh_link) < 0
-			|| (strtab_ptr = (char*)malloc(sizeof(char) * link_shdr.sh_size)) < 0) {
+			|| (strtab_ptr = (char*)malloc(sizeof(char) * link_shdr.sh_size)) == NULL) {
 			strtab_ptr = NULL;
 			fprintf(stderr, "WARNING: Linked String Table Load Failed.\n");
 		} else if (pread(fd, strtab_ptr, link_shdr.sh_size, link_shdr.sh_offset) < 0) {
@@ -539,7 +539,7 @@ int symbol64_print(int fd) {
 			printf("%-*s: 0x%lx / %ld (bytes)\n", SYMS_NAMEGAP, "Symbol Size", sym.st_size, sym.st_size);
 
 			// Symbol Information
-			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_info))) < 0) {
+			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_info))) == NULL) {
 				fprintf(stderr, "WARNING: malloc failed. skip. / %s\n", strerror(errno));
 				continue;
 			}
@@ -548,7 +548,7 @@ int symbol64_print(int fd) {
 			free(str_ptr);
 
 			// Symbol Other
-			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_other))) < 0) {
+			if ((str_ptr = malloc(sizeof(char) * 3 * sizeof(sym.st_other))) == NULL) {
 				fprintf(stderr, "WARNING: malloc failed. skip. / %s\n", strerror(errno));
 				continue;
 			}
@@ -632,5 +632,65 @@ int relro64_print(int fd) {
 			printf("%-*s: %ld\n", RELRO_NAMEGAP, "Relocation Type", ELF64_R_TYPE(rel.r_info));
 		}
 	}
+	return 0;
+}
+
+int note64_print(int fd) {
+	Elf64_Ehdr ehdr;
+	Elf64_Shdr shdr;
+	Elf64_Off offset;
+	Elf64_Nhdr *note;
+	char * str_ptr;
+	void * desc_ptr; // TODO: Type Unknown.
+	char * note_field;
+
+	if (ehdr64_read(fd, &ehdr) < 0) {  return -1;  }
+	for (Elf64_Half sh_idx = 0; sh_idx < ehdr.e_shnum; sh_idx++) {
+		if (shdr64_read(fd, &shdr, sh_idx) < 0) {
+			fprintf(stderr, "WARNING: Failed to read Section Header, index: %d. Skip.\n", sh_idx);
+			continue;
+		}
+		if (shdr.sh_type != SHT_NOTE) {  continue;  }
+		printf("\n==| Section %d |==================\n", sh_idx);
+		str_ptr = shstrtab64_read(fd, shdr.sh_name);
+		if (str_ptr == NULL) {
+			printf("%-*s: %d [Failed to read String Table]\n", NOTE_NAMEGAP, "Section Name", shdr.sh_name);
+		} else {
+			printf("%-*s: %s\n", NOTE_NAMEGAP, "Section Name", str_ptr);
+		}
+		printf("%-*s: 0x%lx / %ld\n", NOTE_NAMEGAP, "Section Offset", shdr.sh_offset, shdr.sh_offset);
+		printf("%-*s: %ld (bytes)\n", NOTE_NAMEGAP, "Section Size", shdr.sh_size);
+		
+		if ((note_field = (char*)malloc(shdr.sh_size)) == NULL) {
+			fprintf(stderr, "WARNING: Failed to create copy of note, index: %d. Skip.\n", sh_idx);
+			continue;
+		}
+		if (pread(fd, note_field, shdr.sh_size, shdr.sh_offset) < 0) {
+			fprintf(stderr, "WARNING: Failed to copy note, index: %d. Skip.\n", sh_idx);
+			free(note_field);
+			continue;
+		}
+		// Print Notes
+		offset = 0;
+		while (offset < shdr.sh_size) {
+			printf("--| Offset 0x%lx |-----------------\n", offset);
+			note = (Elf64_Nhdr*)(note_field + offset);
+			str_ptr = note -> n_namesz == 0 ? NULL : note_field + offset + sizeof(*note);
+			desc_ptr = note -> n_descsz == 0 ? NULL 
+					: note_field + offset + sizeof(*note) + ALIGN_UP(note->n_namesz, shdr.sh_addralign);
+			offset += sizeof(*note) 
+					+ ALIGN_UP(note->n_namesz, shdr.sh_addralign) 
+					+ ALIGN_UP(note->n_descsz, shdr.sh_addralign);
+
+			printf("%-*s: %s\n", NOTE_NAMEGAP, "Note Name", str_ptr);
+			printf("%-*s: ", NOTE_NAMEGAP, "Note Descriptor");
+			for (Elf64_Half desc_idx = 0; desc_idx < note->n_descsz; desc_idx++)
+				{  printf("%02x ", *(unsigned char*)(desc_ptr + desc_idx));  }
+			printf("\n");
+			printf("%-*s: 0x%x / %d\n", NOTE_NAMEGAP, "Note Type Value", note->n_type, note->n_type);
+		}
+		free(note_field);
+	}
+
 	return 0;
 }

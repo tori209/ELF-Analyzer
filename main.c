@@ -116,7 +116,7 @@ int main(int argc, char* argv[]) {
 	if ((options & OPT_NOTE) == OPT_NOTE) {
 		printf("\nParsing Notes... ==============================\n");
 		if (e_ident[EI_CLASS] == 1) {    }
-		if (e_ident[EI_CLASS] == 2) {    }
+		if (e_ident[EI_CLASS] == 2) {  note64_print(fd);  }
 	}
 
 	close(fd);
