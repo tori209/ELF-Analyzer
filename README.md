@@ -23,4 +23,4 @@ Ubuntu 22.04 / 5.10.16.3-microsoft-standard-WSL2
 	- [ ] Notes
 
 # About ELF
-- [Linux ELF / Memory Layout (Notion, Korean; Arranged myself)](https://www.notion.so/tori209/Linux-ELF-Memory-Layout-f5b228beaace40fdbc39e19323eeb655#a21be016ef8748e08e03c5db00997c7b)
+- [Linux ELF / Memory Layout (Notion, Korean; Arranged myself)](https://www.notion.so/tori209/Linux-ELF-Memory-Layout-f5b228beaace40fdbc39e19323eeb655)
